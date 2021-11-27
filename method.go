@@ -1,8 +1,9 @@
 package gateway
 
 import (
-	"go.uber.org/ratelimit"
 	"time"
+
+	"go.uber.org/ratelimit"
 )
 
 const (
