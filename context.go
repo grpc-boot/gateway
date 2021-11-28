@@ -22,25 +22,16 @@ var (
 	}
 )
 
-type Format func() (accessId string, ip string, path string, param []byte)
-
 type Context struct {
 	mutex sync.RWMutex
 
+	status     uint8
 	accessId   string
-	ip         string
 	path       string
-	param      []byte
+	cacheKey   string
+	cacheData  []byte
 	accessTime time.Time
-	takeTime   time.Time
 	data       map[string]interface{}
-}
-
-func contextWithFormat(format Format) *Context {
-	ctx := acquireCtx()
-	ctx.accessId, ctx.ip, ctx.path, ctx.param = format()
-	ctx.accessTime = time.Now()
-	return ctx
 }
 
 func (c *Context) Set(key string, value interface{}) {
@@ -61,30 +52,29 @@ func (c *Context) Get(key string) (value interface{}, exists bool) {
 	return
 }
 
-func (c *Context) Take(t time.Time) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	c.takeTime = t
+func (c *Context) AccessId() string {
+	return c.accessId
 }
 
-func (c *Context) TakeTime() time.Time {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
-
-	return c.takeTime
+func (c *Context) Path() string {
+	return c.path
 }
 
-func (c *Context) Close() {
-	releaseCtx(c)
+func (c *Context) Status() uint8 {
+	return c.status
+}
+
+func (c *Context) CacheData() []byte {
+	return c.cacheData
+}
+
+func (c *Context) AccessTime() time.Time {
+	return c.accessTime
 }
 
 func (c *Context) reset() {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
+	c.status = StatusUnknow
 	c.accessId = ""
-	c.ip = ""
 	c.path = ""
 	c.data = nil
 }

@@ -1,7 +1,7 @@
 package gateway
 
 import (
-	"math/rand"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -12,54 +12,193 @@ var (
 
 func init() {
 	gw = NewGateway(Option{
-		Name:        "注册",
-		Path:        "user/regis",
-		SecondLimit: 1000,
-	}, Option{
 		Name:        "登录",
 		Path:        "user/login",
-		SecondLimit: 10000,
+		SecondLimit: 100,
+	}, Option{
+		Name:        "获取轮播图",
+		Path:        "config/scrolls",
+		SecondLimit: 0,
+		CacheSecond: 60,
+		SuccessCode: 200,
 	})
 }
 
-func TestGateway_Info(t *testing.T) {
-	for i := 0; i < 200; i++ {
-		ctx, status := gw.Input(func() (accessId string, ip string, path string, param []byte) {
-			return time.Now().String(), "", "user/regis", nil
-		})
-		t.Logf("status:%s\n", status)
-
-		data, dur := gw.Output(ctx, func() []byte {
-			return []byte(time.Now().String())
+func TestGateway_Out(t *testing.T) {
+	for i := 0; i < 300; i++ {
+		ctx, err := gw.In(func() (accessId string, path string, cacheKey string) {
+			return strconv.FormatInt(time.Now().UnixNano(), 10), "user/login", ""
 		})
 
-		t.Logf("data:%s, dur:%v\n", string(data), dur)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(time.Millisecond)
+
+		dur, qps, total, _ := gw.Out(ctx, func(code int, data []byte) (err error) {
+			return nil
+		}, 200, nil)
+
+		t.Logf("dur:%v qps:%d total:%d", dur, qps, total)
 	}
-
-	t.Logf("%+v\n", gw.Info())
 }
 
-func BenchmarkGateway_Output(b *testing.B) {
-	rand.Seed(time.Now().UnixNano())
+func TestGateway_In(t *testing.T) {
+	ctx, err := gw.In(func() (accessId string, path string, cacheKey string) {
+		return strconv.FormatInt(time.Now().UnixNano(), 10), "config/scrolls", "test_cache"
+	})
 
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ctx.Status() == StatusNo {
+		t.Fatal("method is not avaliable")
+	}
+
+	dur, qps, total, err := gw.Out(ctx, func(code int, data []byte) (err error) {
+		time.Sleep(time.Millisecond)
+		return nil
+	}, 200, []byte(ctx.AccessId()))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("dur:%v qps:%d total:%d\n", dur, qps, total)
+
+	ctx, err = gw.In(func() (accessId string, path string, cacheKey string) {
+		return strconv.FormatInt(time.Now().UnixNano(), 10), "config/scrolls", "test_cache"
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ctx.Status() == StatusCache {
+		t.Logf("cache:%s\n", string(ctx.CacheData()))
+
+		gw.Out(ctx, func(code int, data []byte) (err error) {
+			time.Sleep(time.Millisecond)
+			return nil
+		}, 200, ctx.CacheData())
+	}
+}
+
+func BenchmarkGateway_InWithCache(b *testing.B) {
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			var ctx *Context
-			if rand.Int()&1 == 0 {
-				ctx, _ = gw.Input(func() (accessId string, ip string, path string, param []byte) {
-					return time.Now().String(), "", "user/login", nil
-				})
-			} else {
-				ctx, _ = gw.Input(func() (accessId string, ip string, path string, param []byte) {
-					return time.Now().String(), "", "user/regis", nil
-				})
+			ctx, err := gw.In(func() (accessId string, path string, cacheKey string) {
+				return time.Now().String(), "config/scrolls", "scrolls"
+			})
+
+			if err != nil {
+				b.Fatal(err)
 			}
 
-			gw.Output(ctx, func() []byte {
+			var data []byte
+			if ctx.Status() == StatusCache {
+				data = ctx.CacheData()
+			} else {
+				time.Sleep(time.Microsecond)
+				data = []byte(time.Now().String())
+			}
+
+			gw.Out(ctx, func(code int, data []byte) (err error) {
+				time.Sleep(time.Nanosecond)
 				return nil
+			}, 200, data)
+		}
+	})
+}
+
+func BenchmarkGateway_InWithoutCache(b *testing.B) {
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			ctx, err := gw.In(func() (accessId string, path string, cacheKey string) {
+				return time.Now().String(), "config/scrolls", ""
 			})
+
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			var data []byte
+			if ctx.Status() == StatusCache {
+				data = ctx.CacheData()
+			} else {
+				time.Sleep(time.Microsecond)
+				data = []byte(time.Now().String())
+			}
+
+			gw.Out(ctx, func(code int, data []byte) (err error) {
+				time.Sleep(time.Microsecond)
+				return nil
+			}, 200, data)
+		}
+	})
+}
+
+func BenchmarkGateway_InTimeoutWithCache(b *testing.B) {
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			ctx, err := gw.InTimeout(time.Millisecond, func() (accessId string, path string, cacheKey string) {
+				return time.Now().String(), "config/scrolls", "scrolls"
+			})
+
+			if err == ErrTimeout {
+				//b.Log(err)
+				continue
+			}
+
+			var data []byte
+			if ctx.Status() == StatusCache {
+				data = ctx.CacheData()
+			} else {
+				time.Sleep(time.Microsecond)
+				data = []byte(time.Now().String())
+			}
+
+			gw.Out(ctx, func(code int, data []byte) (err error) {
+				time.Sleep(time.Nanosecond)
+				return nil
+			}, 200, data)
+		}
+	})
+}
+
+func BenchmarkGateway_InTimeoutWithoutCache(b *testing.B) {
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			ctx, err := gw.InTimeout(time.Millisecond, func() (accessId string, path string, cacheKey string) {
+				return time.Now().String(), "config/scrolls", ""
+			})
+
+			if err == ErrTimeout {
+				//b.Log(err)
+				continue
+			}
+
+			var data []byte
+			if ctx.Status() == StatusCache {
+				data = ctx.CacheData()
+			} else {
+				time.Sleep(time.Microsecond)
+				data = []byte(time.Now().String())
+			}
+
+			gw.Out(ctx, func(code int, data []byte) (err error) {
+				time.Sleep(time.Microsecond)
+				return nil
+			}, 200, data)
 		}
 	})
 }
