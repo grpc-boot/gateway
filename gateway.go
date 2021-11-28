@@ -5,8 +5,6 @@ import (
 	"errors"
 	"sync"
 	"time"
-
-	"github.com/grpc-boot/base"
 )
 
 var (
@@ -32,7 +30,6 @@ type gateway struct {
 
 	mutex sync.RWMutex
 
-	cache      base.ShardMap
 	methodList map[string]*method
 	qps        int32
 	total      uint64
@@ -43,7 +40,6 @@ type gateway struct {
 func NewGateway(options ...Option) Gateway {
 	g := &gateway{
 		methodList: make(map[string]*method, len(options)),
-		cache:      base.NewShardMap(),
 	}
 
 	for _, option := range options {
