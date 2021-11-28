@@ -12,23 +12,18 @@ const (
 	StatusNo     = 1
 	StatusYes    = 2
 	StatusBusy   = 3
-	StatusCache  = 4
 )
 
 type Option struct {
 	Name        string `json:"name" yaml:"name"`
 	Path        string `json:"path" yaml:"path"`
 	SecondLimit int    `json:"second_limit" yaml:"second_limit"`
-	CacheSecond int64  `json:"cache_second" yaml:"cache_second"`
-	SuccessCode int    `json:"success_code" yaml:"success_code"`
 }
 
 type MethodInfo struct {
 	Name        string          `json:"name"`
 	Path        string          `json:"path"`
 	SecondLimit int             `json:"second_limit"`
-	CacheSecond int64           `json:"cache_second"`
-	SuccessCode int             `json:"success_code"`
 	Qps         int32           `json:"qps"`
 	Total       uint64          `json:"total"`
 	Latency     []time.Duration `json:"latency"`
@@ -41,8 +36,6 @@ type method struct {
 	name        string
 	path        string
 	secondLimit int
-	cacheSecond int64
-	successCode int
 	status      uint8
 	qps         int32
 	total       uint64
@@ -59,8 +52,6 @@ func newMethod(option Option) *method {
 		name:        option.Name,
 		path:        option.Path,
 		secondLimit: option.SecondLimit,
-		cacheSecond: option.CacheSecond,
-		successCode: option.SuccessCode,
 		codeMap:     make(map[int]uint64, 8),
 	}
 
@@ -77,7 +68,6 @@ func updateMethod(m *method, option Option) {
 	defer m.mutex.Unlock()
 
 	m.name, m.secondLimit = option.Name, option.SecondLimit
-	m.cacheSecond, m.successCode = option.CacheSecond, option.SuccessCode
 
 	if m.secondLimit > 0 {
 		m.limiter = ratelimit.New(m.secondLimit)

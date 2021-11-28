@@ -14,13 +14,10 @@ var (
 	ErrTimeout       = errors.New(`input timeout`)
 )
 
-type Format func() (accessId string, path string, cacheKey string)
-type Send func(code int, data []byte) (err error)
-
 type Gateway interface {
-	In(format Format) (ctx *Context, err error)
-	InTimeout(timeout time.Duration, format Format) (ctx *Context, err error)
-	Out(ctx *Context, sender Send, code int, data []byte) (dur time.Duration, qps int32, total uint64, err error)
+	In(accessId string, path string) (ctx *Context, err error)
+	InTimeout(timeout time.Duration, accessId string, path string) (ctx *Context, err error)
+	Out(ctx *Context, code int, data []byte) (dur time.Duration, qps int32, total uint64, err error)
 	Info() Info
 }
 
@@ -57,8 +54,8 @@ func NewGateway(options ...Option) Gateway {
 }
 
 func (g *gateway) LoadOptions(options ...Option) {
-	g.mutex.RLock()
-	defer g.mutex.RUnlock()
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
 
 	for _, option := range options {
 		if m, exists := g.methodList[option.Path]; exists {
@@ -69,16 +66,15 @@ func (g *gateway) LoadOptions(options ...Option) {
 	}
 }
 
-func (g *gateway) In(format Format) (ctx *Context, err error) {
+func (g *gateway) In(accessId string, path string) (ctx *Context, err error) {
 	g.mutex.Lock()
 
 	var (
-		accessId, path, cacheKey = format()
-		m, exists                = g.methodList[path]
-		current                  = time.Now()
+		m, exists = g.methodList[path]
+		current   = time.Now()
 	)
 	ctx = acquireCtx()
-	ctx.accessId, ctx.path, ctx.cacheKey, ctx.accessTime = accessId, path, cacheKey, current
+	ctx.accessId, ctx.path, ctx.accessTime = accessId, path, current
 
 	g.mutex.Unlock()
 
@@ -96,20 +92,6 @@ func (g *gateway) In(format Format) (ctx *Context, err error) {
 		m.status, ctx.status = StatusNo, StatusNo
 
 		return ctx, nil
-	}
-
-	//读取缓存
-	if m.cacheSecond > 0 && cacheKey != "" {
-		if c, exist := g.cache.Get(cacheKey); exist {
-			item, ok := c.(cache)
-			if ok && item.expireAt > current.Unix() {
-				ctx.cacheData = item.data
-				ctx.status = StatusCache
-				m.status = StatusYes
-
-				return ctx, nil
-			}
-		}
 	}
 
 	//不限速
@@ -128,16 +110,15 @@ func (g *gateway) In(format Format) (ctx *Context, err error) {
 	return ctx, nil
 }
 
-func (g *gateway) InTimeout(timeout time.Duration, format Format) (ctx *Context, err error) {
+func (g *gateway) InTimeout(timeout time.Duration, accessId string, path string) (ctx *Context, err error) {
 	g.mutex.Lock()
 
 	var (
-		accessId, path, cacheKey = format()
-		m, exists                = g.methodList[path]
-		current                  = time.Now()
+		m, exists = g.methodList[path]
+		current   = time.Now()
 	)
 	ctx = acquireCtx()
-	ctx.accessId, ctx.path, ctx.cacheKey, ctx.accessTime = accessId, path, cacheKey, current
+	ctx.accessId, ctx.path, ctx.accessTime = accessId, path, current
 
 	g.mutex.Unlock()
 
@@ -155,20 +136,6 @@ func (g *gateway) InTimeout(timeout time.Duration, format Format) (ctx *Context,
 		m.status, ctx.status = StatusNo, StatusNo
 
 		return ctx, nil
-	}
-
-	//读取缓存
-	if m.cacheSecond > 0 && cacheKey != "" {
-		if c, exist := g.cache.Get(cacheKey); exist {
-			item, ok := c.(cache)
-			if ok && item.expireAt > current.Unix() {
-				ctx.cacheData = item.data
-				ctx.status = StatusCache
-				m.status = StatusYes
-
-				return ctx, nil
-			}
-		}
 	}
 
 	//不限速
@@ -200,7 +167,7 @@ func (g *gateway) InTimeout(timeout time.Duration, format Format) (ctx *Context,
 	return ctx, nil
 }
 
-func (g *gateway) Out(ctx *Context, sender Send, code int, data []byte) (dur time.Duration, qps int32, total uint64, err error) {
+func (g *gateway) Out(ctx *Context, code int, data []byte) (dur time.Duration, qps int32, total uint64, err error) {
 	defer func() {
 		ctx.reset()
 		releaseCtx(ctx)
@@ -209,8 +176,6 @@ func (g *gateway) Out(ctx *Context, sender Send, code int, data []byte) (dur tim
 	g.mutex.Lock()
 
 	g.total++
-
-	err = sender(code, data)
 
 	var (
 		current     = time.Now()
@@ -239,17 +204,6 @@ func (g *gateway) Out(ctx *Context, sender Send, code int, data []byte) (dur tim
 	//状态码自增
 	codeCount, _ := m.codeMap[code]
 	m.codeMap[code] = codeCount + 1
-
-	//存储缓存
-	if code == m.successCode &&
-		m.cacheSecond > 0 &&
-		ctx.cacheKey != "" &&
-		ctx.Status() != StatusCache {
-		g.cache.Set(ctx.cacheKey, cache{
-			data:     data,
-			expireAt: currentUnix + m.cacheSecond,
-		})
-	}
 
 	//只保留最近100次
 	m.latency = append(m.latency, dur)
@@ -288,8 +242,6 @@ func (g *gateway) Info() Info {
 			Name:        m.name,
 			Path:        m.path,
 			SecondLimit: m.secondLimit,
-			CacheSecond: m.cacheSecond,
-			SuccessCode: m.successCode,
 			Qps:         m.qps,
 			Total:       m.total,
 			Latency:     m.latency[0:],
