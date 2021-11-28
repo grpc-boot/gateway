@@ -40,8 +40,10 @@ func TestGateway_Out(t *testing.T) {
 			return nil
 		}, 200, nil)
 
-		t.Logf("dur:%v qps:%d total:%d", dur, qps, total)
+		t.Logf("dur:%v qps:%d total:%d\n", dur, qps, total)
 	}
+
+	t.Logf("%+v\n", gw.Info())
 }
 
 func TestGateway_In(t *testing.T) {
