@@ -8,10 +8,9 @@ import (
 )
 
 const (
-	StatusUnknow = 0
-	StatusNo     = 1
-	StatusYes    = 2
-	StatusBusy   = 3
+	StatusNo   = 0
+	StatusYes  = 1
+	StatusBusy = 2
 )
 
 type Option struct {
