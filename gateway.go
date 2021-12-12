@@ -13,9 +13,9 @@ var (
 )
 
 type Gateway interface {
-	In(accessId string, path string) (ctx *Context, err error)
-	InTimeout(timeout time.Duration, accessId string, path string) (ctx *Context, err error)
-	Out(ctx *Context, code int, data []byte) (dur time.Duration, qps int32, total uint64, err error)
+	In(path string) (status uint8, err error)
+	InTimeout(timeout time.Duration, path string) (status uint8, err error)
+	Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error)
 	Info() Info
 }
 
@@ -26,10 +26,7 @@ type Info struct {
 }
 
 type gateway struct {
-	Gateway
-
-	mutex sync.RWMutex
-
+	mutex      sync.RWMutex
 	methodList map[string]*method
 	qps        int32
 	total      uint64
@@ -62,22 +59,18 @@ func (g *gateway) LoadOptions(options ...Option) {
 	}
 }
 
-func (g *gateway) In(accessId string, path string) (ctx *Context, err error) {
+func (g *gateway) In(path string) (status uint8, err error) {
 	g.mutex.Lock()
 
 	var (
 		m, exists = g.methodList[path]
-		current   = time.Now()
 	)
-	ctx = acquireCtx()
-	ctx.accessId, ctx.path, ctx.accessTime = accessId, path, current
 
 	g.mutex.Unlock()
 
 	//路径不存在
 	if !exists {
-		ctx.status = StatusNo
-		return ctx, ErrPathNotExists
+		return StatusNo, ErrPathNotExists
 	}
 
 	m.mutex.Lock()
@@ -85,43 +78,32 @@ func (g *gateway) In(accessId string, path string) (ctx *Context, err error) {
 
 	//降级
 	if m.secondLimit == -1 {
-		m.status, ctx.status = StatusNo, StatusNo
-
-		return ctx, nil
+		return StatusNo, nil
 	}
 
 	//不限速
 	if m.secondLimit == 0 {
-		m.status, ctx.status = StatusYes, StatusYes
-
-		return ctx, nil
+		return StatusYes, nil
 	}
 
 	//漏斗
 	m.limiter.Take()
 
-	//更新状态
-	m.status, ctx.status = StatusYes, StatusYes
-
-	return ctx, nil
+	return StatusYes, nil
 }
 
-func (g *gateway) InTimeout(timeout time.Duration, accessId string, path string) (ctx *Context, err error) {
+func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, err error) {
 	g.mutex.Lock()
 
 	var (
 		m, exists = g.methodList[path]
-		current   = time.Now()
 	)
-	ctx = acquireCtx()
-	ctx.accessId, ctx.path, ctx.accessTime = accessId, path, current
 
 	g.mutex.Unlock()
 
 	//路径不存在
 	if !exists {
-		ctx.status = StatusNo
-		return ctx, ErrPathNotExists
+		return StatusNo, ErrPathNotExists
 	}
 
 	m.mutex.Lock()
@@ -129,16 +111,12 @@ func (g *gateway) InTimeout(timeout time.Duration, accessId string, path string)
 
 	//降级
 	if m.secondLimit == -1 {
-		m.status, ctx.status = StatusNo, StatusNo
-
-		return ctx, nil
+		return StatusNo, nil
 	}
 
 	//不限速
 	if m.secondLimit == 0 {
-		m.status, ctx.status = StatusYes, StatusYes
-
-		return ctx, nil
+		return StatusYes, nil
 	}
 
 	var (
@@ -153,22 +131,13 @@ func (g *gateway) InTimeout(timeout time.Duration, accessId string, path string)
 
 	select {
 	case <-w:
-		m.status, ctx.status = StatusYes, StatusYes
+		return StatusYes, nil
 	case <-timeoutCtx.Done():
-		m.status, ctx.status = StatusBusy, StatusBusy
-
-		return ctx, ErrTimeout
+		return StatusBusy, ErrTimeout
 	}
-
-	return ctx, nil
 }
 
-func (g *gateway) Out(ctx *Context, code int, data []byte) (dur time.Duration, qps int32, total uint64, err error) {
-	defer func() {
-		ctx.reset()
-		releaseCtx(ctx)
-	}()
-
+func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error) {
 	g.mutex.Lock()
 
 	g.total++
@@ -183,7 +152,7 @@ func (g *gateway) Out(ctx *Context, code int, data []byte) (dur time.Duration, q
 		g.lastSecond = current.Unix()
 		g.lastTotal = g.total
 	}
-	m, exists := g.methodList[ctx.path]
+	m, exists := g.methodList[path]
 
 	g.mutex.Unlock()
 
@@ -191,7 +160,7 @@ func (g *gateway) Out(ctx *Context, code int, data []byte) (dur time.Duration, q
 		return 0, 0, 0, ErrPathNotExists
 	}
 
-	dur = current.Sub(ctx.AccessTime())
+	dur = current.Sub(accessTime)
 
 	m.mutex.Lock()
 

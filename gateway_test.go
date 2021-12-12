@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"strconv"
 	"testing"
 	"time"
 )
@@ -24,7 +23,8 @@ func init() {
 
 func TestGateway_Out(t *testing.T) {
 	for i := 0; i < 300; i++ {
-		ctx, err := gw.In(strconv.FormatInt(time.Now().UnixNano(), 10), "user/login")
+		accessTime := time.Now()
+		_, err := gw.In("user/login")
 
 		if err != nil {
 			t.Fatal(err)
@@ -32,7 +32,7 @@ func TestGateway_Out(t *testing.T) {
 
 		time.Sleep(time.Millisecond)
 
-		dur, qps, total, _ := gw.Out(ctx, 200, nil)
+		dur, qps, total, _ := gw.Out(accessTime, "user/login", 200)
 
 		t.Logf("dur:%v qps:%d total:%d\n", dur, qps, total)
 	}
@@ -41,17 +41,18 @@ func TestGateway_Out(t *testing.T) {
 }
 
 func TestGateway_In(t *testing.T) {
-	ctx, err := gw.In(strconv.FormatInt(time.Now().UnixNano(), 10), "config/scrolls")
+	accessTime := time.Now()
+	status, err := gw.In("config/scrolls")
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if ctx.Status() == StatusNo {
+	if status == StatusNo {
 		t.Fatal("method is not avaliable")
 	}
 
-	dur, qps, total, err := gw.Out(ctx, 200, []byte(ctx.AccessId()))
+	dur, qps, total, err := gw.Out(accessTime, "config/scrolls", 200)
 
 	if err != nil {
 		t.Fatal(err)
@@ -65,13 +66,14 @@ func BenchmarkGateway_In(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ctx, err := gw.In(time.Now().String(), "config/scrolls")
+			accessTime := time.Now()
+			_, err := gw.In("config/scrolls")
 
 			if err != nil {
 				b.Fatal(err)
 			}
 
-			gw.Out(ctx, 200, []byte(time.Now().String()))
+			gw.Out(accessTime, "config/scrolls", 200)
 		}
 	})
 }
@@ -81,13 +83,14 @@ func BenchmarkGateway_InTimeout(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ctx, err := gw.InTimeout(time.Millisecond, time.Now().String(), "config/scrolls")
+			accessTime := time.Now()
+			_, err := gw.InTimeout(time.Millisecond*100, "config/scrolls")
 
-			if err == ErrTimeout {
-				continue
+			if err != nil {
+				b.Fatal(err)
 			}
 
-			gw.Out(ctx, 200, []byte(time.Now().String()))
+			gw.Out(accessTime, "config/scrolls", 200)
 		}
 	})
 }
