@@ -3,6 +3,8 @@ package gateway
 import (
 	"testing"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 var (
@@ -24,11 +26,7 @@ func init() {
 func TestGateway_Out(t *testing.T) {
 	for i := 0; i < 300; i++ {
 		accessTime := time.Now()
-		_, err := gw.In("user/login")
-
-		if err != nil {
-			t.Fatal(err)
-		}
+		_, _ = gw.In("user/login")
 
 		time.Sleep(time.Millisecond)
 
@@ -37,15 +35,16 @@ func TestGateway_Out(t *testing.T) {
 		t.Logf("dur:%v qps:%d total:%d\n", dur, qps, total)
 	}
 
-	t.Logf("%+v\n", gw.Info())
+	info, _ := jsoniter.Marshal(gw.Info())
+	t.Logf("%s\n", string(info))
 }
 
 func TestGateway_In(t *testing.T) {
 	accessTime := time.Now()
-	status, err := gw.In("config/scrolls")
+	status, exists := gw.In("config/scrolls")
 
-	if err != nil {
-		t.Fatal(err)
+	if !exists {
+		t.Fatal("want true, got false")
 	}
 
 	if status == StatusNo {
@@ -67,11 +66,7 @@ func BenchmarkGateway_In(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			accessTime := time.Now()
-			_, err := gw.In("config/scrolls")
-
-			if err != nil {
-				b.Fatal(err)
-			}
+			_, _ = gw.In("config/scrolls")
 
 			gw.Out(accessTime, "config/scrolls", 200)
 		}
@@ -84,7 +79,7 @@ func BenchmarkGateway_InTimeout(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			accessTime := time.Now()
-			_, err := gw.InTimeout(time.Millisecond*100, "config/scrolls")
+			_, _, err := gw.InTimeout(time.Millisecond*100, "config/scrolls")
 
 			if err != nil {
 				b.Fatal(err)

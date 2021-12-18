@@ -8,13 +8,12 @@ import (
 )
 
 var (
-	ErrPathNotExists = errors.New(`path not exists`)
-	ErrTimeout       = errors.New(`input timeout`)
+	ErrTimeout = errors.New(`input timeout`)
 )
 
 type Gateway interface {
-	In(path string) (status uint8, err error)
-	InTimeout(timeout time.Duration, path string) (status uint8, err error)
+	In(path string) (status uint8, exists bool)
+	InTimeout(timeout time.Duration, path string) (status uint8, exists bool, err error)
 	Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error)
 	Info() Info
 }
@@ -59,18 +58,17 @@ func (g *gateway) LoadOptions(options ...Option) {
 	}
 }
 
-func (g *gateway) In(path string) (status uint8, err error) {
+func (g *gateway) In(path string) (status uint8, exists bool) {
 	g.mutex.Lock()
 
-	var (
-		m, exists = g.methodList[path]
-	)
+	var m *method
+	m, exists = g.methodList[path]
 
 	g.mutex.Unlock()
 
 	//路径不存在
 	if !exists {
-		return StatusNo, ErrPathNotExists
+		return StatusYes, exists
 	}
 
 	m.mutex.Lock()
@@ -78,32 +76,31 @@ func (g *gateway) In(path string) (status uint8, err error) {
 
 	//降级
 	if m.secondLimit == -1 {
-		return StatusNo, nil
+		return StatusNo, exists
 	}
 
 	//不限速
 	if m.secondLimit == 0 {
-		return StatusYes, nil
+		return StatusYes, exists
 	}
 
 	//漏斗
 	m.limiter.Take()
 
-	return StatusYes, nil
+	return StatusYes, exists
 }
 
-func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, err error) {
+func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, exists bool, err error) {
 	g.mutex.Lock()
 
-	var (
-		m, exists = g.methodList[path]
-	)
+	var m *method
+	m, exists = g.methodList[path]
 
 	g.mutex.Unlock()
 
 	//路径不存在
 	if !exists {
-		return StatusNo, ErrPathNotExists
+		return StatusYes, exists, nil
 	}
 
 	m.mutex.Lock()
@@ -111,12 +108,12 @@ func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, e
 
 	//降级
 	if m.secondLimit == -1 {
-		return StatusNo, nil
+		return StatusNo, exists, nil
 	}
 
 	//不限速
 	if m.secondLimit == 0 {
-		return StatusYes, nil
+		return StatusYes, exists, nil
 	}
 
 	var (
@@ -131,14 +128,21 @@ func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, e
 
 	select {
 	case <-w:
-		return StatusYes, nil
+		return StatusYes, exists, nil
 	case <-timeoutCtx.Done():
-		return StatusBusy, ErrTimeout
+		return StatusBusy, exists, ErrTimeout
 	}
 }
 
 func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error) {
 	g.mutex.Lock()
+	m, exists := g.methodList[path]
+
+	//路径不存在
+	if !exists {
+		g.mutex.Unlock()
+		return
+	}
 
 	g.total++
 
@@ -152,12 +156,11 @@ func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Dur
 		g.lastSecond = current.Unix()
 		g.lastTotal = g.total
 	}
-	m, exists := g.methodList[path]
 
 	g.mutex.Unlock()
 
 	if !exists {
-		return 0, 0, 0, ErrPathNotExists
+		return 0, 0, 0, nil
 	}
 
 	dur = current.Sub(accessTime)
@@ -172,7 +175,7 @@ func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Dur
 
 	//只保留最近100次
 	m.latency = append(m.latency, dur)
-	if len(m.latency) > 99 {
+	if len(m.latency) >= sampleMax {
 		m.latency = m.latency[1:]
 	}
 
@@ -186,13 +189,11 @@ func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Dur
 	total = m.total
 
 	m.mutex.Unlock()
-
 	return dur, qps, total, nil
 }
 
 func (g *gateway) Info() Info {
 	g.mutex.RLock()
-	defer g.mutex.RUnlock()
 
 	info := Info{
 		Qps:        g.qps,
@@ -203,13 +204,16 @@ func (g *gateway) Info() Info {
 	for _, m := range g.methodList {
 		m.mutex.Lock()
 
+		dst := make(LatencyList, len(m.latency))
+		copy(dst, m.latency)
+
 		mi := MethodInfo{
 			Name:        m.name,
 			Path:        m.path,
 			SecondLimit: m.secondLimit,
 			Qps:         m.qps,
 			Total:       m.total,
-			Latency:     m.latency[0:],
+			latency:     dst,
 		}
 
 		mi.CodeMap = make(map[int]uint64, len(m.codeMap))
@@ -217,9 +221,17 @@ func (g *gateway) Info() Info {
 			mi.CodeMap[code] = count
 		}
 
-		info.MethodList = append(info.MethodList, mi)
-
 		m.mutex.Unlock()
+
+		info.MethodList = append(info.MethodList, mi)
+	}
+
+	//释放锁
+	g.mutex.RUnlock()
+
+	//分别排序计算
+	for index, _ := range info.MethodList {
+		info.MethodList[index].format()
 	}
 
 	return info
