@@ -138,8 +138,8 @@ func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, e
 		case <-w:
 			return StatusYes, exists, nil
 		default:
-			time.Sleep(dur)
 		}
+		time.Sleep(dur)
 	}
 
 	return StatusBusy, exists, ErrTimeout
