@@ -54,7 +54,7 @@ func (mi *MethodInfo) format() {
 }
 
 type method struct {
-	mutex sync.Mutex
+	mutex sync.RWMutex
 
 	name        string
 	path        string

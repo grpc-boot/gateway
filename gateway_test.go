@@ -26,7 +26,10 @@ func init() {
 func TestGateway_Out(t *testing.T) {
 	for i := 0; i < 300; i++ {
 		accessTime := time.Now()
-		_, _ = gw.In("user/login")
+		_, _, err := gw.InTimeout(time.Millisecond*100, "user/login")
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		time.Sleep(time.Millisecond)
 
@@ -79,13 +82,13 @@ func BenchmarkGateway_InTimeout(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			accessTime := time.Now()
-			_, _, err := gw.InTimeout(time.Millisecond*100, "config/scrolls")
+			_, _, err := gw.InTimeout(time.Millisecond*100, "user/login")
 
 			if err != nil {
 				b.Fatal(err)
 			}
 
-			gw.Out(accessTime, "config/scrolls", 200)
+			gw.Out(accessTime, "user/login", 200)
 		}
 	})
 }

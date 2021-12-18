@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -106,8 +107,8 @@ func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, e
 		return StatusYes, exists, nil
 	}
 
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
 	//降级
 	if m.secondLimit == -1 {
@@ -120,29 +121,21 @@ func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, e
 	}
 
 	var (
-		w   = make(chan time.Time, 1)
-		dur = timeout / checkCount
-		num = checkCount
+		w                  = make(chan time.Time, 1)
+		timeoutCtx, cancel = context.WithTimeout(context.Background(), timeout)
 	)
-
-	if dur <= time.Nanosecond {
-		num = 1
-	}
+	defer cancel()
 
 	go func() {
 		w <- m.limiter.Take()
 	}()
 
-	for i := 0; i < num; i++ {
-		select {
-		case <-w:
-			return StatusYes, exists, nil
-		default:
-		}
-		time.Sleep(dur)
+	select {
+	case <-w:
+		return StatusYes, exists, nil
+	case <-timeoutCtx.Done():
+		return StatusBusy, exists, ErrTimeout
 	}
-
-	return StatusBusy, exists, ErrTimeout
 }
 
 func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error) {
@@ -213,7 +206,7 @@ func (g *gateway) Info() Info {
 	}
 
 	for _, m := range g.methodList {
-		m.mutex.Lock()
+		m.mutex.RLock()
 
 		dst := make(LatencyList, len(m.latency))
 		copy(dst, m.latency)
@@ -232,7 +225,7 @@ func (g *gateway) Info() Info {
 			mi.CodeMap[code] = count
 		}
 
-		m.mutex.Unlock()
+		m.mutex.RUnlock()
 
 		info.MethodList = append(info.MethodList, mi)
 	}
