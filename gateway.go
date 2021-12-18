@@ -1,10 +1,13 @@
 package gateway
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"time"
+)
+
+const (
+	checkCount = 10
 )
 
 var (
@@ -117,21 +120,29 @@ func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, e
 	}
 
 	var (
-		w                  = make(chan time.Time, 1)
-		timeoutCtx, cancel = context.WithTimeout(context.Background(), timeout)
+		w   = make(chan time.Time, 1)
+		dur = timeout / checkCount
+		num = checkCount
 	)
-	defer cancel()
+
+	if dur <= time.Nanosecond {
+		num = 1
+	}
 
 	go func() {
 		w <- m.limiter.Take()
 	}()
 
-	select {
-	case <-w:
-		return StatusYes, exists, nil
-	case <-timeoutCtx.Done():
-		return StatusBusy, exists, ErrTimeout
+	for i := 0; i < num; i++ {
+		select {
+		case <-w:
+			return StatusYes, exists, nil
+		default:
+			time.Sleep(dur)
+		}
 	}
+
+	return StatusBusy, exists, ErrTimeout
 }
 
 func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error) {
