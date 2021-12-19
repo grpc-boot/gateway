@@ -8,14 +8,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/grpc-boot/base"
 	"github.com/grpc-boot/gateway"
 	jsoniter "github.com/json-iterator/go"
 )
 
 var (
-	conf Conf
-	gw   gateway.Gateway
+	gw gateway.Gateway
 )
 
 const (
@@ -28,16 +26,9 @@ type Response struct {
 	Data interface{} `json:"data"`
 }
 
-type Conf struct {
-	GatewayOptions []gateway.Option `yaml:"gateway"`
-}
-
 func init() {
-	err := base.YamlDecodeFile("app.yml", &conf)
-	if err != nil {
-		panic(err)
-	}
-	gw = gateway.NewGateway(conf.GatewayOptions...)
+	optionFunc := gateway.OptionsWithYamlFile("app.yml")
+	gw = gateway.NewGateway(time.Millisecond, optionFunc)
 }
 
 func response(ctx *gin.Context, code int, msg string, data interface{}) {

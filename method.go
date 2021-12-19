@@ -4,27 +4,16 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-	"time"
 
 	"go.uber.org/ratelimit"
 )
 
 const (
-	StatusNo   = 0
-	StatusYes  = 1
-	StatusBusy = 2
+	// 样本数量
+	sampleCount = 10000
 )
 
-const (
-	sampleMax = 10000
-)
-
-type Option struct {
-	Name        string `json:"name" yaml:"name"`
-	Path        string `json:"path" yaml:"path"`
-	SecondLimit int    `json:"second_limit" yaml:"second_limit"`
-}
-
+// MethodInfo 方法详情
 type MethodInfo struct {
 	Name        string         `json:"name"`
 	Path        string         `json:"path"`
@@ -37,7 +26,8 @@ type MethodInfo struct {
 	L90         string         `json:"90_line"`
 	L95         string         `json:"95_line"`
 	CodeMap     map[int]uint64 `json:"code_map"`
-	latency     LatencyList
+
+	latency LatencyList
 }
 
 func (mi *MethodInfo) format() {
@@ -46,6 +36,7 @@ func (mi *MethodInfo) format() {
 	}
 
 	sort.Sort(mi.latency)
+
 	mi.Min = fmt.Sprint(mi.latency.Min())
 	mi.Max = fmt.Sprint(mi.latency.Max())
 	mi.Avg = fmt.Sprint(mi.latency.Avg())
@@ -65,7 +56,7 @@ type method struct {
 	lastTotal   uint64
 	lastSecond  int64
 	limiter     ratelimit.Limiter
-	latency     []time.Duration
+	latency     LatencyList
 	codeMap     map[int]uint64
 }
 
@@ -82,7 +73,7 @@ func newMethod(option Option) *method {
 		m.limiter = ratelimit.New(m.secondLimit)
 	}
 
-	m.latency = make([]time.Duration, 0, sampleMax)
+	m.latency = make(LatencyList, 0, sampleCount)
 	return m
 }
 

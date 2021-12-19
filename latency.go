@@ -2,6 +2,7 @@ package gateway
 
 import "time"
 
+// LatencyList 方法延时列表
 type LatencyList []time.Duration
 
 func (ll LatencyList) Len() int {

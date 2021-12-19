@@ -5,10 +5,14 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"go.uber.org/atomic"
 )
 
 const (
-	checkCount = 10
+	StatusNo   = 0
+	StatusYes  = 1
+	StatusBusy = 2
 )
 
 var (
@@ -16,40 +20,87 @@ var (
 )
 
 type Gateway interface {
+	// In 接收请求
 	In(path string) (status uint8, exists bool)
+	// InTimeout 带有超时时间的接收请求
 	InTimeout(timeout time.Duration, path string) (status uint8, exists bool, err error)
+	// Out gateway响应
 	Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error)
-	Info() Info
-}
-
-type Info struct {
-	Qps        int32        `json:"qps"`
-	Total      uint64       `json:"total"`
-	MethodList []MethodInfo `json:"method_list"`
+	// Info 获取gateway信息
+	Info() (info Info)
+	// Close 释放gateway资源
+	Close() (err error)
 }
 
 type gateway struct {
-	mutex      sync.RWMutex
-	methodList map[string]*method
-	qps        int32
-	total      uint64
-	lastTotal  uint64
-	lastSecond int64
+	mutex       sync.RWMutex
+	methodList  map[string]*method
+	qps         int32
+	total       uint64
+	lastTotal   uint64
+	lastSecond  int64
+	doneChan    chan uint8
+	hasDone     atomic.Bool
+	tick        *time.Ticker
+	optionsFunc OptionsFunc
 }
 
-func NewGateway(options ...Option) Gateway {
-	g := &gateway{
-		methodList: make(map[string]*method, len(options)),
-	}
+// NewGateway new gateway intance
+func NewGateway(duration time.Duration, optionsFunc OptionsFunc) Gateway {
+	var (
+		options = optionsFunc()
+		g       = &gateway{
+			optionsFunc: optionsFunc,
+			methodList:  make(map[string]*method, len(options)),
+			doneChan:    make(chan uint8, 1),
+		}
+	)
 
 	for _, option := range options {
 		g.methodList[option.Path] = newMethod(option)
 	}
 
+	if duration >= time.Nanosecond {
+		g.tick = time.NewTicker(duration)
+		go g.startSyncOptions()
+	}
+
 	return g
 }
 
-func (g *gateway) LoadOptions(options ...Option) {
+func (g *gateway) startSyncOptions() {
+	if g.tick == nil {
+		return
+	}
+
+	g.hasDone.Store(false)
+
+	for {
+		select {
+		case <-g.tick.C:
+			options := g.optionsFunc()
+			g.loadOptions(options...)
+		case <-g.doneChan:
+			return
+		default:
+			time.Sleep(time.Millisecond * 10)
+		}
+	}
+}
+
+func (g *gateway) stopSyncOptions() {
+	if !g.hasDone.CAS(false, true) {
+		return
+	}
+
+	g.doneChan <- 1
+}
+
+func (g *gateway) loadOptions(options ...Option) {
+	if len(options) < 1 {
+		return
+	}
+
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 
@@ -62,6 +113,7 @@ func (g *gateway) LoadOptions(options ...Option) {
 	}
 }
 
+// In 接收请求
 func (g *gateway) In(path string) (status uint8, exists bool) {
 	g.mutex.Lock()
 
@@ -94,6 +146,7 @@ func (g *gateway) In(path string) (status uint8, exists bool) {
 	return StatusYes, exists
 }
 
+// InTimeout 带有超时时间的接收请求
 func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, exists bool, err error) {
 	g.mutex.Lock()
 
@@ -138,6 +191,7 @@ func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, e
 	}
 }
 
+// Out gateway响应
 func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error) {
 	g.mutex.Lock()
 	m, exists := g.methodList[path]
@@ -179,7 +233,7 @@ func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Dur
 
 	//只保留最近100次
 	m.latency = append(m.latency, dur)
-	if len(m.latency) >= sampleMax {
+	if len(m.latency) >= sampleCount {
 		m.latency = m.latency[1:]
 	}
 
@@ -196,10 +250,11 @@ func (g *gateway) Out(accessTime time.Time, path string, code int) (dur time.Dur
 	return dur, qps, total, nil
 }
 
-func (g *gateway) Info() Info {
+// Info 获取gateway信息
+func (g *gateway) Info() (info Info) {
 	g.mutex.RLock()
 
-	info := Info{
+	info = Info{
 		Qps:        g.qps,
 		Total:      g.total,
 		MethodList: make([]MethodInfo, 0, len(g.methodList)),
@@ -208,7 +263,7 @@ func (g *gateway) Info() Info {
 	for _, m := range g.methodList {
 		m.mutex.RLock()
 
-		dst := make(LatencyList, len(m.latency))
+		dst := make(LatencyList, len(m.latency), len(m.latency))
 		copy(dst, m.latency)
 
 		mi := MethodInfo{
@@ -239,4 +294,10 @@ func (g *gateway) Info() Info {
 	}
 
 	return info
+}
+
+// Close 释放gateway资源
+func (g *gateway) Close() (err error) {
+	g.stopSyncOptions()
+	return
 }
