@@ -1,0 +1,17 @@
+[
+  {
+    "name": "登录",
+    "path": "/user/login",
+    "second_limit": 0
+  },
+  {
+    "name": "注册",
+    "path": "/user/regis",
+    "second_limit": -1
+  },
+  {
+    "name": "获取用户信息",
+    "path": "/user/info",
+    "second_limit": 1000
+  }
+]

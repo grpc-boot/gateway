@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"github.com/grpc-boot/base"
 	"math/rand"
 	"net/http"
 	"os"
@@ -27,8 +27,9 @@ type Response struct {
 }
 
 func init() {
-	optionFunc := gateway.OptionsWithYamlFile("app.yml")
-	gw = gateway.NewGateway(time.Millisecond, optionFunc)
+	optionFunc := gateway.OptionsWithJsonFile("app.json")
+	//optionFunc := gateway.OptionsWithYamlFile("app.yml")
+	gw = gateway.NewGateway(0, optionFunc)
 }
 
 func response(ctx *gin.Context, code int, msg string, data interface{}) {
@@ -50,19 +51,23 @@ func withGateway() gin.HandlerFunc {
 
 		switch status {
 		case gateway.StatusNo:
-			if err == nil { //降级
-				response(ctx, http.StatusRequestTimeout, "server is busy", nil)
-				log.Println(gw.Out(accessTime, path, http.StatusRequestTimeout))
-			} else { //异常
-				response(ctx, http.StatusInternalServerError, "internal server error", nil)
+			var (
+				code = http.StatusRequestTimeout
+				msg  = "server is busy"
+			)
+
+			if err != nil { //异常
+				code = http.StatusInternalServerError
+				msg = "internal server error"
 			}
 
+			response(ctx, code, msg, nil)
+			gw.Out(accessTime, path, code)
 			ctx.Abort()
 			return
 		case gateway.StatusBusy: //超时
 			response(ctx, http.StatusRequestTimeout, "server is busy", nil)
-			log.Println(gw.Out(accessTime, path, http.StatusRequestTimeout))
-
+			gw.Out(accessTime, path, http.StatusRequestTimeout)
 			ctx.Abort()
 			return
 		}
@@ -75,7 +80,8 @@ func withGateway() gin.HandlerFunc {
 
 		if exists {
 			//网关出
-			log.Println(gw.Out(accessTime, path, ctx.GetInt(LogicCode)))
+			duration, qps, total, er := gw.Out(accessTime, path, ctx.GetInt(LogicCode))
+			base.Green("path:%s duration:%v qps:%d total:%d err:%v", path, duration, qps, total, er)
 		}
 	}
 }
@@ -101,7 +107,7 @@ func main() {
 	})
 
 	router.GET("/user/login", func(ctx *gin.Context) {
-		time.Sleep(time.Millisecond * time.Duration(rand.Int63n(1000)))
+		time.Sleep(time.Millisecond * time.Duration(rand.Int63n(10)))
 		if time.Now().Unix()%2 == 0 {
 			response(ctx, http.StatusOK, "ok", nil)
 			return

@@ -76,7 +76,7 @@ func OptionsWithRedis(red *redigo.Pool, hashKey string) (optionsFunc OptionsFunc
 // OptionsWithJsonFile 从Json文件加载配置
 func OptionsWithJsonFile(filepath string) (optionsFunc OptionsFunc) {
 	return func() (options []Option) {
-		err := base.YamlDecodeFile(filepath, &options)
+		err := base.JsonDecodeFile(filepath, &options)
 		if err != nil {
 			base.Red("OptionsWithJsonFile: load json file [%s] err:%s", filepath, err.Error())
 		}

@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	hashKey = "gateway:options"
+	hashKey   = "gateway:options"
+	redisAddr = `127.0.0.1:6379`
 )
 
 var (
@@ -28,7 +29,7 @@ func init() {
 		MaxIdle:   1,
 		MaxActive: 1,
 		Dial: func() (redigo.Conn, error) {
-			return redigo.Dial("tcp", "127.0.0.1:6379", dialOptions...)
+			return redigo.Dial("tcp", redisAddr, dialOptions...)
 		},
 		TestOnBorrow: func(c redigo.Conn, t time.Time) error {
 			if time.Since(t) < time.Minute {
@@ -71,4 +72,6 @@ func main() {
 
 	var wa chan struct{}
 	<-wa
+
+	gw.Close()
 }
