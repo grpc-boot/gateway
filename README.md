@@ -2,15 +2,15 @@
 
 <!-- TOC -->
 - [gateway](#gateway)
-    - [1.实例化](#1.实例化)
-    - [2.Option解析](#2.Option解析)
-    - [3.在gin中使用](#3.在gin中使用)
-    - [4.用redis做options配置存储](#4.用redis做options配置存储)
-    - [5.用mysql做options配置存储](#5.用mysql做options配置存储)
+    - [1.实例化](#实例化)
+    - [2.Option解析](#Option解析)
+    - [3.在gin中使用](#在gin中使用)
+    - [4.用redis做options配置存储](#用redis做options配置存储)
+    - [5.用mysql做options配置存储](#用mysql做options配置存储)
     
 <!-- /TOC -->
 
-### 1.实例化
+### 实例化
 
 ```go
 gw = NewGateway(0, func() (options []Option) {
@@ -29,7 +29,7 @@ gw = NewGateway(0, func() (options []Option) {
 })
 ```
 
-### 2.Option解析
+### Option解析
 
 ```go
 type Option struct {
@@ -39,7 +39,7 @@ type Option struct {
 }
 ```
 
-### 3.在gin中使用
+### 在gin中使用
 
 > app.yml
 
@@ -203,7 +203,7 @@ func main() {
 }
 ```
 
-### 4.用redis做options配置存储
+### 用redis做options配置存储
 
 ```go
 package main
@@ -286,7 +286,7 @@ func main() {
 
 ```
 
-### 5.用mysql做options配置存储
+### 用mysql做options配置存储
 
 ```go
 package main
