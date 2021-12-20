@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/grpc-boot/base"
 	"math/rand"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/grpc-boot/base"
 	"github.com/grpc-boot/gateway"
 	jsoniter "github.com/json-iterator/go"
 )
@@ -87,6 +87,8 @@ func withGateway() gin.HandlerFunc {
 }
 
 func main() {
+	defer gw.Close()
+
 	rand.Seed(time.Now().UnixNano())
 	router := gin.New()
 

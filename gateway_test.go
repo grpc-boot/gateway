@@ -11,23 +11,21 @@ var (
 	gw Gateway
 )
 
-func optionsFunc() (options []Option) {
-	return []Option{
-		Option{
-			Name:        "登录",
-			Path:        "user/login",
-			SecondLimit: 100,
-		},
-		Option{
-			Name:        "获取轮播图",
-			Path:        "config/scrolls",
-			SecondLimit: 0,
-		},
-	}
-}
-
 func init() {
-	gw = NewGateway(0, optionsFunc)
+	gw = NewGateway(0, func() (options []Option) {
+		return []Option{
+			Option{
+				Name:        "登录",
+				Path:        "user/login",
+				SecondLimit: 100,
+			},
+			Option{
+				Name:        "获取轮播图",
+				Path:        "config/scrolls",
+				SecondLimit: 0,
+			},
+		}
+	})
 }
 
 func TestGateway_Out(t *testing.T) {

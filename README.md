@@ -3,15 +3,20 @@
 ### 1.实例化
 
 ```go
-gw := NewGateway(Option{
-		Name:        "登录",
-		Path:        "user/login",
-		SecondLimit: 100,
-	}, Option{
-		Name:        "获取轮播图",
-		Path:        "config/scrolls",
-		SecondLimit: 0,
-	})
+gw = NewGateway(0, func() (options []Option) {
+    return []Option{
+        Option{
+            Name:        "登录",
+            Path:        "user/login",
+            SecondLimit: 100,
+        },
+        Option{
+            Name:        "获取轮播图",
+            Path:        "config/scrolls",
+            SecondLimit: 0,
+        },
+    }
+})
 ```
 
 ### 2.Option 解析
@@ -29,18 +34,17 @@ type Option struct {
 > app.yml
 
 ```yaml
-gateway:
-  - name: '登录'
-    path: '/user/login'
-    second_limit: 0
+- name: '登录'
+  path: '/user/login'
+  second_limit: 0
 
-  - name: '注册'
-    path: '/user/regis'
-    second_limit: -1
+- name: '注册'
+  path: '/user/regis'
+  second_limit: -1
 
-  - name: '获取用户信息'
-    path: '/user/info'
-    second_limit: 2000
+- name: '获取用户信息'
+  path: '/user/info'
+  second_limit: 2000
 ```
 
 > main.go
@@ -49,7 +53,6 @@ gateway:
 package main
 
 import (
-	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -62,8 +65,7 @@ import (
 )
 
 var (
-	conf Conf
-	gw   gateway.Gateway
+	gw gateway.Gateway
 )
 
 const (
@@ -76,16 +78,10 @@ type Response struct {
 	Data interface{} `json:"data"`
 }
 
-type Conf struct {
-	GatewayOptions []gateway.Option `yaml:"gateway"`
-}
-
 func init() {
-	err := base.YamlDecodeFile("app.yml", &conf)
-	if err != nil {
-		panic(err)
-	}
-	gw = gateway.NewGateway(conf.GatewayOptions...)
+	optionFunc := gateway.OptionsWithJsonFile("app.json")
+	//optionFunc := gateway.OptionsWithYamlFile("app.yml")
+	gw = gateway.NewGateway(0, optionFunc)
 }
 
 func response(ctx *gin.Context, code int, msg string, data interface{}) {
@@ -107,19 +103,23 @@ func withGateway() gin.HandlerFunc {
 
 		switch status {
 		case gateway.StatusNo:
-			if err == nil { //降级
-				response(ctx, http.StatusRequestTimeout, "server is busy", nil)
-				log.Println(gw.Out(accessTime, path, http.StatusRequestTimeout))
-			} else { //异常
-				response(ctx, http.StatusInternalServerError, "internal server error", nil)
+			var (
+				code = http.StatusRequestTimeout
+				msg  = "server is busy"
+			)
+
+			if err != nil { //异常
+				code = http.StatusInternalServerError
+				msg = "internal server error"
 			}
 
+			response(ctx, code, msg, nil)
+			gw.Out(accessTime, path, code)
 			ctx.Abort()
 			return
 		case gateway.StatusBusy: //超时
 			response(ctx, http.StatusRequestTimeout, "server is busy", nil)
-			log.Println(gw.Out(accessTime, path, http.StatusRequestTimeout))
-
+			gw.Out(accessTime, path, http.StatusRequestTimeout)
 			ctx.Abort()
 			return
 		}
@@ -132,12 +132,15 @@ func withGateway() gin.HandlerFunc {
 
 		if exists {
 			//网关出
-			log.Println(gw.Out(accessTime, path, ctx.GetInt(LogicCode)))
+			duration, qps, total, er := gw.Out(accessTime, path, ctx.GetInt(LogicCode))
+			base.Green("path:%s duration:%v qps:%d total:%d err:%v", path, duration, qps, total, er)
 		}
 	}
 }
 
 func main() {
+	defer gw.Close()
+	
 	rand.Seed(time.Now().UnixNano())
 	router := gin.New()
 
@@ -158,7 +161,7 @@ func main() {
 	})
 
 	router.GET("/user/login", func(ctx *gin.Context) {
-		time.Sleep(time.Millisecond * time.Duration(rand.Int63n(1000)))
+		time.Sleep(time.Millisecond * time.Duration(rand.Int63n(10)))
 		if time.Now().Unix()%2 == 0 {
 			response(ctx, http.StatusOK, "ok", nil)
 			return
@@ -187,5 +190,167 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+}
+```
+
+### 4.用redis做options配置存储
+
+```go
+package main
+
+import (
+	"time"
+
+	"github.com/grpc-boot/base"
+	"github.com/grpc-boot/gateway"
+
+	redigo "github.com/garyburd/redigo/redis"
+	jsoniter "github.com/json-iterator/go"
+)
+
+const (
+	hashKey   = "gateway:options"
+	redisAddr = `127.0.0.1:6379`
+)
+
+var (
+	redisPool *redigo.Pool
+	gw        gateway.Gateway
+)
+
+func init() {
+	dialOptions := []redigo.DialOption{
+		redigo.DialReadTimeout(time.Millisecond * 500),
+	}
+
+	redisPool = &redigo.Pool{
+		MaxIdle:   1,
+		MaxActive: 1,
+		Dial: func() (redigo.Conn, error) {
+			return redigo.Dial("tcp", redisAddr, dialOptions...)
+		},
+		TestOnBorrow: func(c redigo.Conn, t time.Time) error {
+			if time.Since(t) < time.Minute {
+				return nil
+			}
+			_, err := c.Do("PING")
+			return err
+		},
+	}
+
+	conn := redisPool.Get()
+	defer conn.Close()
+
+	args := []interface{}{
+		hashKey,
+		1,
+		`{"name": "登录","path": "/user/login","second_limit": 0}`,
+		2,
+		`{"name": "注册","path": "/user/regis","second_limit": -1}`,
+		3,
+		`{"name": "获取用户信息","path": "/user/info","second_limit": 1000}`,
+	}
+
+	_, err := conn.Do("HMSET", args...)
+	if err != nil {
+		base.RedFatal("set redis config err:%s", err.Error())
+	}
+}
+
+func main() {
+	gw = gateway.NewGateway(time.Second, gateway.OptionsWithRedis(redisPool, hashKey))
+
+	go func() {
+		for {
+			info, _ := jsoniter.Marshal(gw.Info())
+			base.Green("%s", string(info))
+			time.Sleep(time.Second)
+		}
+	}()
+
+	var wa chan struct{}
+	<-wa
+
+	gw.Close()
+}
+
+```
+
+### 5.用mysql做options配置存储
+
+```go
+package main
+
+import (
+	"database/sql"
+	"time"
+
+	"github.com/grpc-boot/base"
+	"github.com/grpc-boot/gateway"
+
+	_ "github.com/go-sql-driver/mysql"
+	jsoniter "github.com/json-iterator/go"
+)
+
+/**
+CREATE TABLE `gateway` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `name` varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT '' COMMENT '名称',
+  `path` varchar(255) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT '' COMMENT '路径',
+  `second_limit` int unsigned DEFAULT '5000' COMMENT '每秒请求数',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `path` (`path`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+*/
+
+const (
+	tableName = "gateway"
+	dsn       = `root:123456@tcp(127.0.0.1:3306)/dd?timeout=5s&readTimeout=6s`
+)
+
+var (
+	db *sql.DB
+	gw gateway.Gateway
+)
+
+func init() {
+	var err error
+	db, err = sql.Open("mysql", dsn)
+	if err != nil {
+		base.RedFatal("open mysql err:%s", err.Error())
+	}
+
+	db.SetConnMaxLifetime(time.Second * 100)
+	db.SetConnMaxIdleTime(time.Second * 100)
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(5)
+
+	args := []interface{}{
+		"登录", "/user/login", "0",
+		"注册", "/user/regis", "-1",
+		"获取用户信息", "/user/info", "1000",
+	}
+
+	_, err = db.Exec("INSERT IGNORE INTO `gateway`(`name`,`path`,`second_limit`)VALUES(?,?,?),(?,?,?),(?,?,?)", args...)
+	if err != nil {
+		base.RedFatal("insert config err:%s", err.Error())
+	}
+}
+
+func main() {
+	gw = gateway.NewGateway(time.Second, gateway.OptionsWithDb(db, tableName))
+
+	go func() {
+		for {
+			info, _ := jsoniter.Marshal(gw.Info())
+			base.Green("%s", string(info))
+			time.Sleep(time.Second)
+		}
+	}()
+
+	var wa chan struct{}
+	<-wa
+
+	gw.Close()
 }
 ```
