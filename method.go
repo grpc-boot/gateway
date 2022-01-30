@@ -2,10 +2,9 @@ package gateway
 
 import (
 	"fmt"
+	"go.uber.org/ratelimit"
 	"sort"
 	"sync"
-
-	"go.uber.org/ratelimit"
 )
 
 const (
@@ -70,7 +69,7 @@ func newMethod(option Option) *method {
 	}
 
 	if m.secondLimit > 0 {
-		m.limiter = ratelimit.New(m.secondLimit)
+		m.limiter = ratelimit.New(m.secondLimit, ratelimit.WithoutSlack)
 	}
 
 	m.latency = make(LatencyList, 0, sampleCount)
@@ -84,7 +83,7 @@ func updateMethod(m *method, option Option) {
 	m.name, m.secondLimit = option.Name, option.SecondLimit
 
 	if m.secondLimit > 0 {
-		m.limiter = ratelimit.New(m.secondLimit)
+		m.limiter = ratelimit.New(m.secondLimit, ratelimit.WithoutSlack)
 	} else {
 		m.limiter = nil
 	}
