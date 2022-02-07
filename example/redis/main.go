@@ -50,7 +50,7 @@ func init() {
 		2,
 		`{"name": "注册","path": "/user/regis","second_limit": -1}`,
 		3,
-		`{"name": "获取用户信息","path": "/user/info","second_limit": 1000}`,
+		`{"name": "获取用户信息","path": "/user/info","second_limit": 1000, "bucket_size": 10}`,
 	}
 
 	_, err := conn.Do("HMSET", args...)

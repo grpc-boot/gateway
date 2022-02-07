@@ -47,7 +47,7 @@ func response(ctx *gin.Context, code int, msg string, data interface{}) {
 func withGateway() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		path, accessTime := ctx.FullPath(), time.Now()
-		status, exists, err := gw.InTimeout(time.Second, path)
+		status, exists := gw.In(path)
 
 		switch status {
 		case gateway.StatusNo:
@@ -55,11 +55,6 @@ func withGateway() gin.HandlerFunc {
 				code = http.StatusRequestTimeout
 				msg  = "server is busy"
 			)
-
-			if err != nil { //异常
-				code = http.StatusInternalServerError
-				msg = "internal server error"
-			}
 
 			response(ctx, code, msg, nil)
 			gw.Out(accessTime, path, code)

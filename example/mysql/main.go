@@ -16,10 +16,11 @@ CREATE TABLE `gateway` (
   `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT '主键',
   `name` varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT '' COMMENT '名称',
   `path` varchar(255) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT '' COMMENT '路径',
-  `second_limit` int unsigned DEFAULT '5000' COMMENT '每秒请求数',
+  `second_limit` int DEFAULT '5000' COMMENT '每秒请求数',
+  `bucket_size` int unsigned DEFAULT '8' COMMENT '桶容量',
   PRIMARY KEY (`id`),
   UNIQUE KEY `path` (`path`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 */
 
 const (
@@ -46,12 +47,12 @@ func init() {
 	db.SetMaxIdleConns(5)
 
 	args := []interface{}{
-		"登录", "/user/login", "0",
-		"注册", "/user/regis", "-1",
-		"获取用户信息", "/user/info", "10",
+		"登录", "/user/login", "0", "10",
+		"注册", "/user/regis", "-1", "3",
+		"获取用户信息", "/user/info", "10", "8",
 	}
 
-	_, err = db.Exec("INSERT IGNORE INTO `gateway`(`name`,`path`,`second_limit`)VALUES(?,?,?),(?,?,?),(?,?,?)", args...)
+	_, err = db.Exec("INSERT IGNORE INTO `gateway`(`name`,`path`,`second_limit`,`bucket_size`)VALUES(?,?,?,?),(?,?,?,?),(?,?,?,?)", args...)
 	if err != nil {
 		base.RedFatal("insert config err:%s", err.Error())
 	}
@@ -85,7 +86,7 @@ func access() {
 		go func() {
 			val, _ := cache.Load("gw")
 			gwy, _ := val.(gateway.Gateway)
-			status, _, _ := gwy.InTimeout(time.Millisecond*100, "/user/info")
+			status, _ := gwy.In("/user/info")
 			base.Fuchsia("%d", status)
 		}()
 		time.Sleep(time.Millisecond * 10)

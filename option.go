@@ -9,6 +9,11 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
+const (
+	//默认桶容量
+	defaultBucketSize = 8
+)
+
 // OptionsFunc 加载配置函数
 type OptionsFunc func() (options []Option)
 
@@ -17,6 +22,13 @@ type Option struct {
 	Name        string `json:"name" yaml:"name"`
 	Path        string `json:"path" yaml:"path"`
 	SecondLimit int    `json:"second_limit" yaml:"second_limit"`
+	BucketSize  int    `json:"bucket_size" yaml:"bucket_size"`
+}
+
+func (o *Option) build() {
+	if o.BucketSize < 1 {
+		o.BucketSize = defaultBucketSize
+	}
 }
 
 // OptionsWithDb 从数据库表加载配置
@@ -35,7 +47,7 @@ func OptionsWithDb(db *sql.DB, tableName string) (optionsFunc OptionsFunc) {
 		options = make([]Option, 0, 32)
 		for rows.Next() {
 			var option Option
-			if err = rows.Scan(&id, &option.Name, &option.Path, &option.SecondLimit); err != nil {
+			if err = rows.Scan(&id, &option.Name, &option.Path, &option.SecondLimit, &option.BucketSize); err != nil {
 				continue
 			}
 			options = append(options, option)

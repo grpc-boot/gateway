@@ -9,5 +9,5 @@ require (
 	github.com/grpc-boot/base v1.1.1
 	github.com/json-iterator/go v1.1.12
 	go.uber.org/atomic v1.9.0
-	go.uber.org/ratelimit v0.2.0
+	golang.org/x/time v0.0.0-20211116232009-f0f3c7e86c11
 )

@@ -1,8 +1,6 @@
 package gateway
 
 import (
-	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -15,15 +13,9 @@ const (
 	StatusBusy = 2
 )
 
-var (
-	ErrTimeout = errors.New(`input timeout`)
-)
-
 type Gateway interface {
 	// In 接收请求
 	In(path string) (status uint8, exists bool)
-	// InTimeout 带有超时时间的接收请求
-	InTimeout(timeout time.Duration, path string) (status uint8, exists bool, err error)
 	// Out gateway响应
 	Out(accessTime time.Time, path string, code int) (dur time.Duration, qps int32, total uint64, err error)
 	// Info 获取gateway信息
@@ -140,55 +132,11 @@ func (g *gateway) In(path string) (status uint8, exists bool) {
 		return StatusYes, exists
 	}
 
-	//漏斗
-	m.limiter.Take()
+	if !m.limiter.Allow() {
+		return StatusBusy, exists
+	}
 
 	return StatusYes, exists
-}
-
-// InTimeout 带有超时时间的接收请求
-func (g *gateway) InTimeout(timeout time.Duration, path string) (status uint8, exists bool, err error) {
-	g.mutex.Lock()
-
-	var m *method
-	m, exists = g.methodList[path]
-
-	g.mutex.Unlock()
-
-	//路径不存在
-	if !exists {
-		return StatusYes, exists, nil
-	}
-
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-
-	//降级
-	if m.secondLimit == -1 {
-		return StatusNo, exists, nil
-	}
-
-	//不限速
-	if m.secondLimit == 0 {
-		return StatusYes, exists, nil
-	}
-
-	var (
-		w                  = make(chan time.Time, 1)
-		timeoutCtx, cancel = context.WithTimeout(context.Background(), timeout)
-	)
-	defer cancel()
-
-	go func() {
-		w <- m.limiter.Take()
-	}()
-
-	select {
-	case <-w:
-		return StatusYes, exists, nil
-	case <-timeoutCtx.Done():
-		return StatusBusy, exists, ErrTimeout
-	}
 }
 
 // Out gateway响应

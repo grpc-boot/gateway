@@ -9,3 +9,4 @@
 - name: '获取用户信息'
   path: '/user/info'
   second_limit: 2000
+  bucket_size: 10

@@ -3,8 +3,6 @@ package gateway
 import (
 	"testing"
 	"time"
-
-	jsoniter "github.com/json-iterator/go"
 )
 
 var (
@@ -26,25 +24,6 @@ func init() {
 			},
 		}
 	})
-}
-
-func TestGateway_Out(t *testing.T) {
-	for i := 0; i < 300; i++ {
-		accessTime := time.Now()
-		_, _, err := gw.InTimeout(time.Millisecond*100, "user/login")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		time.Sleep(time.Millisecond)
-
-		dur, qps, total, _ := gw.Out(accessTime, "user/login", 200)
-
-		t.Logf("dur:%v qps:%d total:%d\n", dur, qps, total)
-	}
-
-	info, _ := jsoniter.Marshal(gw.Info())
-	t.Logf("%s\n", string(info))
 }
 
 func TestGateway_In(t *testing.T) {
@@ -77,23 +56,6 @@ func BenchmarkGateway_In(b *testing.B) {
 			_, _ = gw.In("config/scrolls")
 
 			gw.Out(accessTime, "config/scrolls", 200)
-		}
-	})
-}
-
-func BenchmarkGateway_InTimeout(b *testing.B) {
-	b.ResetTimer()
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			accessTime := time.Now()
-			_, _, err := gw.InTimeout(time.Millisecond*100, "user/login")
-
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			gw.Out(accessTime, "user/login", 200)
 		}
 	})
 }
