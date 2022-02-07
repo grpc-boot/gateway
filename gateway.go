@@ -105,8 +105,8 @@ func (g *gateway) loadOptions(options ...Option) {
 	defer g.mutex.Unlock()
 
 	for _, option := range options {
-		if m, exists := g.methodList[option.Path]; exists {
-			updateMethod(m, option)
+		if _, exists := g.methodList[option.Path]; exists {
+			g.methodList[option.Path].update(option)
 		} else {
 			g.methodList[option.Path] = newMethod(option)
 		}

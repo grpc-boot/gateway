@@ -76,7 +76,7 @@ func newMethod(option Option) *method {
 	return m
 }
 
-func updateMethod(m *method, option Option) {
+func (m *method) update(option Option) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

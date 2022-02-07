@@ -2,13 +2,13 @@ package main
 
 import (
 	"database/sql"
+	"sync"
 	"time"
 
 	"github.com/grpc-boot/base"
 	"github.com/grpc-boot/gateway"
 
 	_ "github.com/go-sql-driver/mysql"
-	jsoniter "github.com/json-iterator/go"
 )
 
 /**
@@ -24,12 +24,13 @@ CREATE TABLE `gateway` (
 
 const (
 	tableName = "gateway"
-	dsn       = `root:123456@tcp(127.0.0.1:3306)/dd?timeout=5s&readTimeout=6s`
+	dsn       = `root:12345678@tcp(127.0.0.1:3306)/dd?timeout=5s&readTimeout=6s`
 )
 
 var (
-	db *sql.DB
-	gw gateway.Gateway
+	cache sync.Map
+	db    *sql.DB
+	gw    gateway.Gateway
 )
 
 func init() {
@@ -47,7 +48,7 @@ func init() {
 	args := []interface{}{
 		"登录", "/user/login", "0",
 		"注册", "/user/regis", "-1",
-		"获取用户信息", "/user/info", "1000",
+		"获取用户信息", "/user/info", "1",
 	}
 
 	_, err = db.Exec("INSERT IGNORE INTO `gateway`(`name`,`path`,`second_limit`)VALUES(?,?,?),(?,?,?),(?,?,?)", args...)
@@ -57,18 +58,35 @@ func init() {
 }
 
 func main() {
-	gw = gateway.NewGateway(time.Second, gateway.OptionsWithDb(db, tableName))
+	gw = gateway.NewGateway(time.Second*10, gateway.OptionsWithDb(db, tableName))
 
-	go func() {
+	cache.Store("gw", gw)
+
+	/*go func() {
 		for {
 			info, _ := jsoniter.Marshal(gw.Info())
 			base.Green("%s", string(info))
 			time.Sleep(time.Second)
 		}
-	}()
+	}()*/
+
+	for i := 1; i < 8; i++ {
+		go access()
+	}
 
 	var wa chan struct{}
 	<-wa
 
 	gw.Close()
+}
+
+func access() {
+	for {
+		go func() {
+			val, _ := cache.Load("gw")
+			gwy, _ := val.(gateway.Gateway)
+			status, _, _ := gwy.InTimeout(time.Millisecond*100, "/user/info")
+			base.Fuchsia("%d", status)
+		}()
+	}
 }
