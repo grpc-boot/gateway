@@ -19,6 +19,7 @@ gw = NewGateway(0, func() (options []Option) {
             Name:        "登录",
             Path:        "user/login",
             SecondLimit: 100,
+            BucketSize: 8,
         },
         Option{
             Name:        "获取轮播图",
@@ -35,8 +36,8 @@ gw = NewGateway(0, func() (options []Option) {
 type Option struct {
 	Name        string `json:"name" yaml:"name"`                       //方法名称
 	Path        string `json:"path" yaml:"path"`                       //方法路径
-	SecondLimit int    `json:"second_limit" yaml:"second_limit"`       //每秒限速，-1降级，0不限速，默认不限速
-    BucketSize  int    `json:"bucket_size" yaml:"bucket_size"`         //令牌桶限速，桶容量
+	SecondLimit int    `json:"second_limit" yaml:"second_limit"`       //每秒限速，-1降级，0不限速，默认不限速 
+	BucketSize  int    `json:"bucket_size" yaml:"bucket_size"`         //令牌桶限速，桶容量
 }
 ```
 
