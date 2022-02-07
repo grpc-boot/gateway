@@ -48,7 +48,7 @@ func init() {
 	args := []interface{}{
 		"登录", "/user/login", "0",
 		"注册", "/user/regis", "-1",
-		"获取用户信息", "/user/info", "1",
+		"获取用户信息", "/user/info", "10",
 	}
 
 	_, err = db.Exec("INSERT IGNORE INTO `gateway`(`name`,`path`,`second_limit`)VALUES(?,?,?),(?,?,?),(?,?,?)", args...)
@@ -58,7 +58,7 @@ func init() {
 }
 
 func main() {
-	gw = gateway.NewGateway(time.Second*10, gateway.OptionsWithDb(db, tableName))
+	gw = gateway.NewGateway(time.Second, gateway.OptionsWithDb(db, tableName))
 
 	cache.Store("gw", gw)
 
@@ -88,5 +88,6 @@ func access() {
 			status, _, _ := gwy.InTimeout(time.Millisecond*100, "/user/info")
 			base.Fuchsia("%d", status)
 		}()
+		time.Sleep(time.Millisecond * 10)
 	}
 }
